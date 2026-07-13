@@ -1,0 +1,15 @@
+# Entornos virtuales
+venv/
+.env
+
+# Datos y modelos pesados (No subir a GitHub)
+data/
+*.pkl
+*.joblib
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+
+# Python compilado
+__pycache__/
+*.pyc
