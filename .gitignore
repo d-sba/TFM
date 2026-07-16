@@ -3,7 +3,6 @@ venv/
 .env
 
 # Datos y modelos pesados (No subir a GitHub)
-data/
 *.pkl
 *.joblib
 
