@@ -1,0 +1,15 @@
+pipelines:
+  - name: "aire_normalizado"
+    sql_file: "sql/dn_air_transformer.sql"
+    output_parquet: "data/normalized/fact/calidad_aire_historico.parquet"
+    sources:
+      aire20: "aire20"
+      aire21: "aire21"
+      aire22: "aire22"
+      aire23: "aire23"
+
+  - name: "dim_variables_aire"
+    sql_file: "sql/dim_variable_aire.sql"
+    output_parquet: "data/normalized/dim/dim_variable_aire.parquet"
+    sources:
+      variable_src: "dim_variable_aire_csv"

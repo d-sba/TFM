@@ -12,3 +12,16 @@ venv/
 # Python compilado
 __pycache__/
 *.pyc
+
+# Archivos temporales de DuckDB y Python
+*.tmp
+*.tmp.*
+*.wal
+*.tmp_duckdb*
+
+# Archivos Parquet generados/cacheados en data/
+data/raw/parquet_files/
+data/raw/.cache_*
+data/normalized/*.parquet
+data/enriched/*.parquet
+data/normalized/fact/*.parquet

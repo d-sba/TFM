@@ -1,0 +1,16 @@
+datasets:
+  aire20:
+    path: "data/raw/datos_aire/DatosAire2020.csv"
+    delim: ";"
+  aire21:
+    path: "data/raw/datos_aire/DatosAire2021.csv"
+    delim: ";"
+  aire22:
+    path: "data/raw/datos_aire/DatosAire2022.csv"
+    delim: ";"
+  aire23:
+    path: "data/raw/datos_aire/DatosAire2023.csv"
+    delim: ";"
+  dim_variable_aire_csv:
+    path: "data/raw/static_files/variable_aire.csv"
+    delim: ","
