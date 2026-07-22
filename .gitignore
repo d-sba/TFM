@@ -19,8 +19,7 @@ __pycache__/
 *.wal
 *.tmp_duckdb*
 
-# Archivos Parquet generados/cacheados en data/
-data/raw/parquet_files/
+# Archivos Parquet generados
 data/raw/.cache_*
 data/normalized/*.parquet
 data/enriched/*.parquet

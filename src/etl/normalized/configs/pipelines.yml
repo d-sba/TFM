@@ -7,6 +7,17 @@ pipelines:
       aire21: "aire21"
       aire22: "aire22"
       aire23: "aire23"
+      C6H6: "aire24C6H6"
+      CO: "aire24CO"
+      NO_: "aire24NO"
+      NO2: "aire24NO2"
+      NOx: "aire24NOx"
+      O3: "aire24O3"
+      PM10: "aire24PM10"
+      PM25: "aire24PM25"
+      SO2: "aire24SO2"
+      dimension_unidades_aire: "dim_variable_aire_csv"
+
 
   - name: "dim_variables_aire"
     sql_file: "sql/dim_variable_aire.sql"
