@@ -41,3 +41,9 @@ datasets:
   dim_variable_aire_csv:
     path: "data/raw/static_files/variable_aire.csv"
     delim: ","
+  aemet_climatologia_diaria:
+    path: "data/raw/datos_meteo/Datos_aemt_Eva/aemet_diarios_2020_2024.csv"
+    delim: ","
+  dim_variable_meteo_csv:
+    path: "data/raw/static_files/variables_meteo.csv"
+    delim: ","
