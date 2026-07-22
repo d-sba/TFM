@@ -11,6 +11,33 @@ datasets:
   aire23:
     path: "data/raw/datos_aire/DatosAire2023.csv"
     delim: ";"
+  aire24C6H6:
+    path: "data/raw/datos_aire/DatosAire2024/C6H6_HH_2024.csv"
+    delim: ";"
+  aire24CO:
+    path: "data/raw/datos_aire/DatosAire2024/CO_HH_2024.csv"
+    delim: ";"
+  aire24NO:
+    path: "data/raw/datos_aire/DatosAire2024/NO_HH_2024.csv"
+    delim: ";"
+  aire24NO2:
+    path: "data/raw/datos_aire/DatosAire2024/NO2_HH_2024.csv"
+    delim: ";"
+  aire24NOx:
+    path: "data/raw/datos_aire/DatosAire2024/Nox_HH_2024.csv"
+    delim: ";"
+  aire24O3:
+    path: "data/raw/datos_aire/DatosAire2024/O3_HH_2024.csv"
+    delim: ";"
+  aire24PM10:
+    path: "data/raw/datos_aire/DatosAire2024/PM10_HH_2024.csv"
+    delim: ";"
+  aire24PM25:
+    path: "data/raw/datos_aire/DatosAire2024/PM25_HH_2024.csv"
+    delim: ";"
+  aire24SO2:
+    path: "data/raw/datos_aire/DatosAire2024/SO2_HH_2024.csv"
+    delim: ";"
   dim_variable_aire_csv:
     path: "data/raw/static_files/variable_aire.csv"
     delim: ","

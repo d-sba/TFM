@@ -34,22 +34,19 @@ def resolve_path(path_str: str) -> Path:
     return MODULE_DIR / p
 
 
-def get_or_create_parquet(
-    con: duckdb.DuckDBPyConnection, file_path: Path, delim: str = ";"
-) -> Path:
+def get_or_create_parquet(file_path: Path, delim: str = ";") -> Path:
     """Si el archivo es un CSV, lo convierte a Parquet automáticamente en la
-
     subcarpeta 'parquet_files/' dentro de su mismo directorio.
     """
     if file_path.suffix.lower() == ".parquet":
         return file_path
 
     if file_path.suffix.lower() == ".csv":
-        # 1. Creamos la subcarpeta data/raw/parquet_files si no existe
+        # 1. Creamos la subcarpeta parquet_files si no existe
         parquet_dir = file_path.parent / "parquet_files"
         parquet_dir.mkdir(parents=True, exist_ok=True)
 
-        # 2. Definimos la ruta de destino: data/raw/parquet_files/DatosAire2020.parquet
+        # 2. Definimos la ruta de destino Parquet
         parquet_path = parquet_dir / f"{file_path.stem}.parquet"
 
         # 3. Convertimos solo si no existe o si el CSV se ha modificado recientemente
@@ -66,7 +63,9 @@ def get_or_create_parquet(
                     SELECT * FROM read_csv_auto('{file_path.as_posix()}', delim='{delim}')
                 ) TO '{parquet_path.as_posix()}' (FORMAT PARQUET, COMPRESSION 'SNAPPY');
             """
-            con.execute(convert_query)
+            # Usamos una conexión efímera e independiente para la conversión
+            with duckdb.connect() as local_con:
+                local_con.execute(convert_query)
 
         return parquet_path
 
@@ -136,9 +135,9 @@ def run_pipeline(
                 )
                 continue
 
-            # Conversión o recuperación automática a Parquet
+            # Conversión o recuperación automática a Parquet (sin interferir en la conexión principal)
             optimized_parquet_file = get_or_create_parquet(
-                con, source_file, delim
+                source_file, delim
             )
 
             # Crear VISTA temporal leyendo el archivo Parquet
