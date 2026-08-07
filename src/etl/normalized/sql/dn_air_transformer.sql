@@ -55,7 +55,7 @@ SELECT
         0
     ) AS fecha,
     seed.UNIDAD AS uom,
-    up.valor AS uom_value
+    TRY_CAST(REPLACE(CAST(up.valor AS VARCHAR), ',', '.') AS DOUBLE) AS uom_value
 FROM unpivoted_data AS up
 LEFT JOIN dimension_unidades_aire AS seed
     ON up.magnitud = seed.MAGNITUD;

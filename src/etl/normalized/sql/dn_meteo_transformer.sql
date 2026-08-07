@@ -46,7 +46,7 @@ SELECT
     m.fecha,
     m.variable_meteo,
     dim.uom,
-    m.valor
+    m.valor AS uom_value
 FROM unpivoted_measures AS m
 LEFT JOIN seed_meteo AS dim
     ON m.variable_meteo = dim.variable_meteo
