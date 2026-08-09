@@ -1,0 +1,6 @@
+datasets:
+  aire_normalized_ds:
+    path: "data/normalized/fact/calidad_aire_historico.parquet"
+    delim: ";"
+  seed_rangos_aire:
+    path: "data/normalized/static_files/seed_rango_variables_aire.parquet"

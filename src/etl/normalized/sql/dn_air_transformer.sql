@@ -45,6 +45,7 @@ SELECT
     up.municipio,
     up.estacion,
     up.magnitud,
+    up.estacion,
     up."punto muestreo" AS punto_muestreo,
     MAKE_TIMESTAMP(
         up.anno, 
