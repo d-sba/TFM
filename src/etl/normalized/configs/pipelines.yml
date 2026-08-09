@@ -1,4 +1,5 @@
 pipelines:
+# FACTS
   - name: "aire_normalizado"
     sql_file: "sql/dn_air_transformer.sql"
     output_parquet: "data/normalized/fact/calidad_aire_historico.parquet"
@@ -18,14 +19,6 @@ pipelines:
       SO2: "aire24SO2"
       dimension_unidades_aire: "dim_variable_aire_csv"
 
-
-  - name: "seed_variables_aire"
-    sql_file: "sql/seed_table_creator.sql"
-    output_parquet: "data/normalized/static_files/seed_variable_aire.parquet"
-    sources:
-      variable_src: "dim_variable_aire_csv"
-
-
   - name: "meteo_aemet_normalizado"
     sql_file: "sql/dn_meteo_transformer.sql"
     output_parquet: "data/normalized/fact/meteo_aemet_historico.parquet"
@@ -33,8 +26,21 @@ pipelines:
       aemet_raw: "aemet_climatologia_diaria"
       seed_meteo: "dim_variable_meteo_csv"
 
+# SEEDS
+  - name: "seed_variables_aire"
+    sql_file: "sql/seed_table_creator.sql"
+    output_parquet: "data/normalized/static_files/seed_variable_aire.parquet"
+    sources:
+      variable_src: "dim_variable_aire_csv"
+
   - name: "seed_variable_meteo"
     sql_file: "sql/seed_table_creator.sql"
     output_parquet: "data/normalized/static_files/seed_variable_meteo.parquet"
     sources:
       variable_src: "dim_variable_meteo_csv"
+
+  - name: "seed_rango_variables_aire"
+    sql_file: "sql/seed_table_creator.sql"
+    output_parquet: "data/normalized/static_files/seed_rango_variables_aire.parquet"
+    sources:
+      variable_src: "rango_calidades_csv"

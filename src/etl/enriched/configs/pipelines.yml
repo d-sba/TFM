@@ -1,0 +1,7 @@
+pipelines:
+  - name: "aire_enriched"
+    sql_file: "sql/enriched_aire.sql"
+    output_parquet: "data/enriched/fact/calidad_aire_final.parquet"
+    sources:
+      aire_normalized: "aire_normalized_ds"
+      seed_rangos_aire: "seed_rangos_aire"
