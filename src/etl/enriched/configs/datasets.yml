@@ -7,3 +7,6 @@ datasets:
   meteo_normalized_ds:
     path: "data/normalized/fact/meteo_aemet_historico.parquet"
     delim: ";"
+  seed_festivos:
+    path: "data/normalized/static_files/seed_festivos.parquet"
+    delim: ";"

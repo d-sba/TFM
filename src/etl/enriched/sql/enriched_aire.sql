@@ -48,4 +48,9 @@ data_classified AS (
            END
        )
 )
-SELECT * FROM data_classified;
+SELECT 
+    p.*,
+    COALESCE(f.es_festivo_madrid_ciudad, FALSE) AS es_festivo_madrid_ciudad,
+    COALESCE(f.es_festivo_getafe, FALSE) AS es_festivo_getafe
+FROM data_classified p
+LEFT JOIN tabla_festivos f ON p.fecha = f.fecha;;

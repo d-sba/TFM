@@ -50,3 +50,6 @@ datasets:
   rango_calidades_csv:
     path: "data/raw/static_files/rangos_variables_aire.csv"
     delim: ","
+  seed_festivos:
+    path: "data/raw/static_files/festivos.csv"
+    delim: ","

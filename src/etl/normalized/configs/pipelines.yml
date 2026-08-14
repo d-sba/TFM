@@ -44,3 +44,9 @@ pipelines:
     output_parquet: "data/normalized/static_files/seed_rango_variables_aire.parquet"
     sources:
       variable_src: "rango_calidades_csv"
+
+  - name: "seed_festivos"
+    sql_file: "sql/seed_table_creator.sql"
+    output_parquet: "data/normalized/static_files/seed_festivos.parquet"
+    sources:
+      variable_src: "seed_festivos"

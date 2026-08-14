@@ -5,8 +5,8 @@ pipelines:
     sources:
       aire_normalized: "aire_normalized_ds"
       seed_rangos_aire: "seed_rangos_aire"
+      tabla_festivos: "seed_festivos"
 
-pipelines:
   - name: "meteo_enriched"
     sql_file: "sql/enriched_meteo.sql"
     output_parquet: "data/enriched/fact/meteo_final.parquet"
