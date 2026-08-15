@@ -224,13 +224,15 @@ def limpiar_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     y la fecha a datetime."""
     for col in NUMERIC_COLUMNS:
         if col in df.columns:
-            df[col] = (
-                df[col]
-                .astype(str)
-                .str.replace(",", ".", regex=False)
-                .replace({"nan": None, "": None})
-            )
-            df[col] = pd.to_numeric(df[col], errors="coerce")
+            serie = df[col].astype(str).str.replace(",", ".", regex=False)
+
+            if col == "prec":
+                # "Ip" = precipitación inapreciable (< 0,1 mm): es un dato real,
+                # no un hueco. Si no se recodifica aquí, pd.to_numeric la
+                # convierte en NaN y la fila desaparece como si no hubiera dato.
+                serie = serie.str.replace(r"(?i)^ip$", "0.0", regex=True)
+
+            df[col] = pd.to_numeric(serie.replace({"nan": None, "": None}), errors="coerce")
 
     if "fecha" in df.columns:
         df["fecha"] = pd.to_datetime(df["fecha"], errors="coerce")
