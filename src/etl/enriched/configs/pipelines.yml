@@ -12,3 +12,9 @@ pipelines:
     output_parquet: "data/enriched/fact/meteo_final.parquet"
     sources:
       meteo_normalized: "meteo_normalized_ds"
+
+  - name: "metadata_estaciones"
+    sql_file: "sql/enriched_estaciones.sql"
+    output_parquet: "data/enriched/static_files/metadata_estaciones_final.parquet"
+    sources:
+      seed_estaciones: "seed_estaciones"
