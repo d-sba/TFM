@@ -16,8 +16,10 @@ WITH filtered_raw AS (
         uom_value
     FROM aire_normalized AS an
     WHERE an.provincia = 28
+      AND an.municipio = 79
       AND an.magnitud IN (8, 9, 10, 14)
       AND an.uom_value >= 0
+      AND an.estacion NOT IN (4,11)
 ),
 aggregated_data AS (
     SELECT
@@ -50,7 +52,10 @@ data_classified AS (
 )
 SELECT 
     p.*,
-    COALESCE(f.es_festivo_madrid_ciudad, FALSE) AS es_festivo_madrid_ciudad,
-    COALESCE(f.es_festivo_getafe, FALSE) AS es_festivo_getafe
+    CASE
+        WHEN EXTRACT(ISODOW FROM p.fecha) IN (6, 7) THEN FALSE
+        WHEN COALESCE(f.es_festivo, FALSE) THEN FALSE
+        ELSE TRUE
+    END AS es_laborable_madrid_ciudad,
 FROM data_classified p
-LEFT JOIN tabla_festivos f ON p.fecha = f.fecha;;
+LEFT JOIN tabla_festivos f ON p.fecha = f.fecha;
