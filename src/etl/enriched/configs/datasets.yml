@@ -10,6 +10,12 @@ datasets:
   seed_festivos:
     path: "data/normalized/static_files/seed_festivos.parquet"
     delim: ";"
-  seed_estaciones:
+
+
+  seed_estaciones_aire:
     path: "data/raw/static_files/metadata_estaciones_aire.csv"
+    delim: ","
+
+  seed_estaciones_meteo:
+    path: "data/raw/static_files/metadata_estaciones_meteo.csv"
     delim: ","
