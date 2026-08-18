@@ -1,56 +1,83 @@
 WITH distancias AS (
-    SELECT
-        s.ESTACION AS estacion,
-        s2.ESTACION AS estacion_cercana,
 
-        6371 * 2 * ASIN(
+    SELECT
+        a.ESTACION AS estacion_aire,
+
+        m.estacion_id AS estacion_meteo,
+
+        6371.0 * 2 * ASIN(
             SQRT(
                 POWER(
                     SIN(
-                        RADIANS(s2.LATITUD_G - s.LATITUD_G) / 2
+                        RADIANS(
+                            m.latitud - a.LATITUD_G
+                        ) / 2.0
                     ),
                     2
                 )
                 +
-                COS(RADIANS(s.LATITUD_G))
-                * COS(RADIANS(s2.LATITUD_G))
+                COS(RADIANS(a.LATITUD_G))
+                * COS(RADIANS(m.latitud))
                 * POWER(
                     SIN(
-                        RADIANS(s2.LONGITUD_G - s.LONGITUD_G) / 2
+                        RADIANS(
+                            m.longitud - a.LONGITUD_G
+                        ) / 2.0
                     ),
                     2
                 )
             )
         ) AS distancia_km
 
-    FROM seed_estaciones s
-    CROSS JOIN seed_estaciones s2
+    FROM seed_estaciones_aire AS a
 
-    WHERE s.ESTACION <> s2.ESTACION
+    CROSS JOIN seed_estaciones_meteo AS m
+
+    WHERE a.LATITUD_G IS NOT NULL
+      AND a.LONGITUD_G IS NOT NULL
+      AND m.latitud IS NOT NULL
+      AND m.longitud IS NOT NULL
 ),
 
+
 ranking AS (
+
     SELECT
         *,
         ROW_NUMBER() OVER (
-            PARTITION BY estacion
+            PARTITION BY estacion_aire
             ORDER BY distancia_km
         ) AS rn
+
     FROM distancias
 ),
 
-cercanas AS (
+
+diccionarios AS (
+
     SELECT
-        estacion,
-        list(estacion_cercana ORDER BY distancia_km) AS ESTACIONES_CERCANAS
+        estacion_aire,
+
+        MAP(
+            LIST(estacion_meteo),
+            LIST(ROUND(distancia_km, 2))
+        ) AS distancias_meteo
+
     FROM ranking
+
     WHERE rn <= 5
-    GROUP BY estacion
+
+    GROUP BY estacion_aire
 )
 
+
 SELECT
-    s.*,
-    c.ESTACIONES_CERCANAS
-FROM seed_estaciones s
-LEFT JOIN cercanas c
-    ON s.ESTACION = c.estacion;
+    a.*,
+    d.distancias_meteo
+
+FROM seed_estaciones_aire AS a
+
+LEFT JOIN diccionarios d
+    ON a.ESTACION = d.estacion_aire
+
+ORDER BY a.ESTACION;
