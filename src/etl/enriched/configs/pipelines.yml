@@ -1,4 +1,5 @@
 pipelines:
+  # FACTS
   - name: "aire_enriched"
     sql_file: "sql/enriched_aire.sql"
     output_parquet: "data/enriched/fact/calidad_aire_final.parquet"
@@ -13,8 +14,15 @@ pipelines:
     sources:
       meteo_normalized: "meteo_normalized_ds"
 
-  - name: "metadata_estaciones"
-    sql_file: "sql/enriched_estaciones.sql"
-    output_parquet: "data/enriched/static_files/metadata_estaciones_final.parquet"
+  # DIMS
+  - name: "metadata_estaciones_aire"
+    sql_file: "sql/enriched_estaciones_aire.sql"
+    output_parquet: "data/enriched/dims/dim_estaciones_aire.parquet"
     sources:
-      seed_estaciones: "seed_estaciones"
+      seed_estaciones: "seed_estaciones_aire"
+
+  - name: "metadata_estaciones_meteo"
+    sql_file: "sql/enriched_estaciones_meteo.sql"
+    output_parquet: "data/enriched/dims/dim_estaciones_meteo.parquet"
+    sources:
+      seed_estaciones: "seed_estaciones_meteo"
