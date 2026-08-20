@@ -20,6 +20,17 @@
 
 
 WITH
+-- ============================================================
+-- 0. UOM cte
+-- ============================================================
+uom_por_magnitud AS (
+    SELECT
+        magnitud,
+        MAX(uom) AS uom
+    FROM aire_normalized
+    WHERE uom IS NOT NULL
+    GROUP BY magnitud
+),
 
 
 -- ============================================================
@@ -30,6 +41,7 @@ idw_config AS (
     SELECT *
     FROM (
         VALUES
+            (8,  6, 1.0),
             (9,  7, 1.0),
             (10, 7, 1.5),
             (14, 7, 1.0)
