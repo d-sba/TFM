@@ -175,7 +175,7 @@ def run_pipeline_tests(
     con,
     tests: list,
     stage_dir: Path,
-    pipeline_name: str
+    pipeline_name: str,
 ) -> bool:
     """
     Ejecuta los tests de calidad definidos
@@ -229,6 +229,22 @@ def run_pipeline_tests(
         test_sql_file = test.get(
             "sql_file"
         )
+
+        # La severidad pertenece a cada test y se define en el YAML.
+        # Por defecto: error.
+        test_severity = str(
+            test.get("severity", "error")
+        ).lower()
+
+        if test_severity not in ("error", "warning"):
+            print(
+                f"   ❌ [{i}/{len(tests)}] "
+                f"{test_name}: severity inválida "
+                f"'{test_severity}'. "
+                "Debe ser 'error' o 'warning'."
+            )
+            all_passed = False
+            continue
 
         if not test_sql_file:
 
@@ -284,23 +300,40 @@ def run_pipeline_tests(
                 )
 
             else:
+                if test_severity == "warning":
+                    print(
+                        f"   ⚠️ [{i}/{len(tests)}] "
+                        f"{test_name} (WARNING)"
+                    )
 
-                all_passed = False
+                    print(
+                        "      El test ha devuelto "
+                        "al menos una fila, "
+                        "pero no bloquea la pipeline."
+                    )
 
-                print(
-                    f"   ❌ [{i}/{len(tests)}] "
-                    f"{test_name}"
-                )
+                    print(
+                        f"      Primera fila problemática: "
+                        f"{first_row}"
+                    )
 
-                print(
-                    "      El test ha devuelto "
-                    "al menos una fila."
-                )
+                else:
+                    all_passed = False
 
-                print(
-                    f"      Primera fila problemática: "
-                    f"{first_row}"
-                )
+                    print(
+                        f"   ❌ [{i}/{len(tests)}] "
+                        f"{test_name}"
+                    )
+
+                    print(
+                        "      El test ha devuelto "
+                        "al menos una fila."
+                    )
+
+                    print(
+                        f"      Primera fila problemática: "
+                        f"{first_row}"
+                    )
 
         except Exception as e:
 

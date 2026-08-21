@@ -1,12 +1,24 @@
-WITH b1_b2_limpieza AS (
+WITH
+
+-- =============================================================================
+-- B1 + B2
+--
+-- Correcciones específicas de calidad.
+-- =============================================================================
+
+b1_b2_limpieza AS (
     SELECT
         fecha,
         estacion_id,
-        variable_meteo,
+        variable_meteo AS variable,
+        uom,
 
         CASE
             WHEN estacion_id = '3200'
-                 AND variable_meteo IN ('humedad_max', 'humedad_min')
+                 AND variable_meteo IN (
+                     'humedad_max',
+                     'humedad_min'
+                 )
                 THEN NULL
 
             WHEN estacion_id = '3195'
@@ -14,191 +26,166 @@ WITH b1_b2_limpieza AS (
                 THEN NULL
 
             ELSE uom_value
-        END AS valor
+        END AS uom_value
 
     FROM meteo_normalized
 
     WHERE estacion_id != '3194U'
 ),
 
-datos_pivotados AS (
+
+-- =============================================================================
+-- B3
+--
+-- Variables susceptibles de interpolación.
+-- =============================================================================
+
+b3_contexto AS (
     SELECT
         fecha,
         estacion_id,
+        variable,
+        uom,
+        uom_value,
 
-        MAX(CASE
-            WHEN variable_meteo = 'temp_media'
-            THEN valor
-        END) AS temp_media,
+        -- -------------------------------------------------------------
+        -- ÚLTIMO VALOR VÁLIDO ANTERIOR
+        -- -------------------------------------------------------------
 
-        MAX(CASE
-            WHEN variable_meteo = 'temp_min'
-            THEN valor
-        END) AS temp_min,
+        LAST_VALUE(
+            uom_value IGNORE NULLS
+        ) OVER (
+            PARTITION BY estacion_id, variable
+            ORDER BY fecha
+            ROWS BETWEEN UNBOUNDED PRECEDING
+                     AND 1 PRECEDING
+        ) AS prev_value,
 
-        MAX(CASE
-            WHEN variable_meteo = 'temp_max'
-            THEN valor
-        END) AS temp_max,
+        LAST_VALUE(
+            CASE
+                WHEN uom_value IS NOT NULL
+                THEN fecha
+            END
+            IGNORE NULLS
+        ) OVER (
+            PARTITION BY estacion_id, variable
+            ORDER BY fecha
+            ROWS BETWEEN UNBOUNDED PRECEDING
+                     AND 1 PRECEDING
+        ) AS prev_date,
 
-        MAX(CASE
-            WHEN variable_meteo = 'humedad_media'
-            THEN valor
-        END) AS humedad_media,
+        -- -------------------------------------------------------------
+        -- PRIMER VALOR VÁLIDO POSTERIOR
+        -- -------------------------------------------------------------
 
-        MAX(CASE
-            WHEN variable_meteo = 'humedad_min'
-            THEN valor
-        END) AS humedad_min,
+        FIRST_VALUE(
+            uom_value IGNORE NULLS
+        ) OVER (
+            PARTITION BY estacion_id, variable
+            ORDER BY fecha
+            ROWS BETWEEN 1 FOLLOWING
+                     AND UNBOUNDED FOLLOWING
+        ) AS next_value,
 
-        MAX(CASE
-            WHEN variable_meteo = 'humedad_max'
-            THEN valor
-        END) AS humedad_max,
-
-        MAX(CASE
-            WHEN variable_meteo = 'presion_min'
-            THEN valor
-        END) AS presion_min,
-
-        MAX(CASE
-            WHEN variable_meteo = 'presion_max'
-            THEN valor
-        END) AS presion_max,
-
-        MAX(CASE
-            WHEN variable_meteo = 'insolacion'
-            THEN valor
-        END) AS insolacion,
-
-        MAX(CASE
-            WHEN variable_meteo = 'precipitacion'
-            THEN valor
-        END) AS precipitacion,
-
-        MAX(CASE
-            WHEN variable_meteo = 'viento_velocidad'
-            THEN valor
-        END) AS viento_velocidad,
-
-        MAX(CASE
-            WHEN variable_meteo = 'viento_racha'
-            THEN valor
-        END) AS viento_racha,
-
-        MAX(CASE
-            WHEN variable_meteo = 'direccion_racha_max'
-            THEN valor
-        END) AS direccion_racha_max
+        FIRST_VALUE(
+            CASE
+                WHEN uom_value IS NOT NULL
+                THEN fecha
+            END
+            IGNORE NULLS
+        ) OVER (
+            PARTITION BY estacion_id, variable
+            ORDER BY fecha
+            ROWS BETWEEN 1 FOLLOWING
+                     AND UNBOUNDED FOLLOWING
+        ) AS next_date
 
     FROM b1_b2_limpieza
 
-    GROUP BY
-        fecha,
-        estacion_id
-),
-
--- =============================================================================
--- B3
--- Preparación para interpolación lineal.
---
--- Para cada variable:
---   prev_valid_date = último día con dato válido
---   next_valid_date = siguiente día con dato válido
---
--- Solo interpolaremos si entre ambos hay <= 5 días ausentes.
--- =============================================================================
-b3_contexto AS (
-    SELECT
-        *,
-        
-        MAX(
-            CASE
-                WHEN valor IS NOT NULL THEN fecha
-            END
-        ) OVER (
-            PARTITION BY estacion_id, variable_meteo
-            ORDER BY fecha
-            ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
-        ) AS prev_valid_date,
-
-        MIN(
-            CASE
-                WHEN valor IS NOT NULL THEN fecha
-            END
-        ) OVER (
-            PARTITION BY estacion_id, variable_meteo
-            ORDER BY fecha
-            ROWS BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING
-        ) AS next_valid_date,
-
-        fill(valor ORDER BY fecha) OVER (
-            PARTITION BY estacion_id, variable_meteo
-        ) AS valor_interpolado
-
-    FROM (
-        SELECT
-            fecha,
-            estacion_id,
-            variable_meteo,
-            valor
-        FROM b1_b2_limpieza
-        WHERE variable_meteo IN (
-            'temp_media',
-            'temp_min',
-            'temp_max',
-            'humedad_media',
-            'humedad_min',
-            'humedad_max',
-            'presion_min',
-            'presion_max',
-            'insolacion',
-            'viento_velocidad'
-        )
-    ) AS long_data
+    WHERE variable IN (
+        'temp_media',
+        'temp_min',
+        'temp_max',
+        'humedad_media',
+        'humedad_min',
+        'humedad_max',
+        'presion_min',
+        'presion_max',
+        'insolacion',
+        'viento_velocidad'
+    )
 ),
 
 
 -- =============================================================================
 -- B3
--- Aplicar interpolación únicamente a huecos <= 5 días.
 --
--- La condición:
+-- INTERPOLACIÓN LINEAL
 --
--- date_diff(prev_valid_date, next_valid_date) - 1 <= 5
---
--- representa el número de días faltantes entre ambos valores válidos.
+-- Solo huecos de <= 5 días.
 -- =============================================================================
-b3_interpolado_largo AS (
+
+b3_interpolado AS (
     SELECT
         fecha,
         estacion_id,
-        variable_meteo,
+        variable,
+        uom,
 
         CASE
-            WHEN valor IS NOT NULL THEN valor
+            WHEN uom_value IS NOT NULL
+                THEN uom_value
 
-            WHEN prev_valid_date IS NOT NULL
-                 AND next_valid_date IS NOT NULL
-                 AND date_diff(
-                     'day',
-                     prev_valid_date,
-                     next_valid_date
+            WHEN prev_date IS NOT NULL
+             AND next_date IS NOT NULL
+
+             AND date_diff(
+                    'day',
+                    prev_date,
+                    next_date
                  ) - 1 <= 5
 
-                THEN valor_interpolado
+            THEN
+                prev_value
+                +
+                (
+                    next_value - prev_value
+                )
+                *
+                (
+                    CAST(
+                        date_diff(
+                            'day',
+                            prev_date,
+                            fecha
+                        )
+                        AS DOUBLE
+                    )
+                    /
+                    NULLIF(
+                        CAST(
+                            date_diff(
+                                'day',
+                                prev_date,
+                                next_date
+                            )
+                            AS DOUBLE
+                        ),
+                        0
+                    )
+                )
 
             ELSE NULL
-        END AS valor,
+        END AS uom_value,
 
         CASE
-            WHEN valor IS NULL
-                 AND prev_valid_date IS NOT NULL
-                 AND next_valid_date IS NOT NULL
-                 AND date_diff(
-                     'day',
-                     prev_valid_date,
-                     next_valid_date
+            WHEN uom_value IS NULL
+             AND prev_date IS NOT NULL
+             AND next_date IS NOT NULL
+             AND date_diff(
+                    'day',
+                    prev_date,
+                    next_date
                  ) - 1 <= 5
 
                 THEN TRUE
@@ -211,232 +198,217 @@ b3_interpolado_largo AS (
 
 
 -- =============================================================================
--- Volvemos a pivotar las variables después de B3
+-- VARIABLES QUE NO PASAN POR B3
 -- =============================================================================
-b3_pivotado AS (
+
+variables_no_b3 AS (
     SELECT
         fecha,
         estacion_id,
+        variable,
+        uom,
+        uom_value,
 
-        MAX(CASE WHEN variable_meteo = 'temp_media'
-            THEN valor END) AS temp_media,
+        FALSE AS flag_interp_corta
 
-        MAX(CASE WHEN variable_meteo = 'temp_min'
-            THEN valor END) AS temp_min,
+    FROM b1_b2_limpieza
 
-        MAX(CASE WHEN variable_meteo = 'temp_max'
-            THEN valor END) AS temp_max,
-
-        MAX(CASE WHEN variable_meteo = 'humedad_media'
-            THEN valor END) AS humedad_media,
-
-        MAX(CASE WHEN variable_meteo = 'humedad_min'
-            THEN valor END) AS humedad_min,
-
-        MAX(CASE WHEN variable_meteo = 'humedad_max'
-            THEN valor END) AS humedad_max,
-
-        MAX(CASE WHEN variable_meteo = 'presion_min'
-            THEN valor END) AS presion_min,
-
-        MAX(CASE WHEN variable_meteo = 'presion_max'
-            THEN valor END) AS presion_max,
-
-        MAX(CASE WHEN variable_meteo = 'insolacion'
-            THEN valor END) AS insolacion,
-
-        MAX(CASE WHEN variable_meteo = 'viento_velocidad'
-            THEN valor END) AS viento_velocidad,
-
-        MAX(CASE WHEN variable_meteo = 'flag_interp_corta'
-            THEN CASE WHEN valor THEN 1 ELSE 0 END END) AS _dummy
-
-    FROM b3_interpolado_largo
-
-    GROUP BY
-        fecha,
-        estacion_id
+    WHERE variable IN (
+        'precipitacion',
+        'viento_racha',
+        'direccion_racha_max'
+    )
 ),
 
 
 -- =============================================================================
--- Recuperamos variables que NO pasan por B3
+-- B3 FINAL LONG
 -- =============================================================================
-b3_final AS (
+
+b3_final_long AS (
+
     SELECT
-        p.fecha,
-        p.estacion_id,
+        fecha,
+        estacion_id,
+        variable,
+        uom,
+        uom_value,
+        flag_interp_corta
 
-        p.temp_media,
-        p.temp_min,
-        p.temp_max,
+    FROM b3_interpolado
 
-        p.humedad_media,
-        p.humedad_min,
-        p.humedad_max,
+    UNION ALL
 
-        p.presion_min,
-        p.presion_max,
+    SELECT
+        fecha,
+        estacion_id,
+        variable,
+        uom,
+        uom_value,
+        flag_interp_corta
 
-        p.insolacion,
-
-        original.precipitacion,
-        original.viento_racha,
-        original.direccion_racha_max,
-
-        p.viento_velocidad,
-
-        -- Flag B3.
-        CASE
-            WHEN EXISTS (
-                SELECT 1
-                FROM b3_interpolado_largo i
-                WHERE i.fecha = p.fecha
-                  AND i.estacion_id = p.estacion_id
-                  AND i.flag_interp_corta = TRUE
-            )
-            THEN TRUE
-            ELSE FALSE
-        END AS flag_interp_corta
-
-    FROM b3_pivotado p
-
-    LEFT JOIN datos_pivotados original
-        ON p.fecha = original.fecha
-        AND p.estacion_id = original.estacion_id
+    FROM variables_no_b3
 ),
 
 
 -- =============================================================================
--- B4
--- Donantes para Retiro.
---
--- Se utilizan:
---   3200 -> Getafe
---   3129 -> Aeropuerto
---   3196 -> Cuatro Vientos
---
--- Para viento mantenemos la lógica que ya tenías.
+-- DONANTES VIENTO
 -- =============================================================================
+
 donantes_viento AS (
     SELECT
         fecha,
 
-        MAX(CASE
-            WHEN estacion_id = '3200'
-            THEN viento_velocidad
-        END) AS v_getafe,
+        MAX(
+            CASE
+                WHEN estacion_id = '3200'
+                 AND variable = 'viento_velocidad'
+                THEN uom_value
+            END
+        ) AS v_getafe,
 
-        MAX(CASE
-            WHEN estacion_id = '3129'
-            THEN viento_velocidad
-        END) AS v_aero,
+        MAX(
+            CASE
+                WHEN estacion_id = '3129'
+                 AND variable = 'viento_velocidad'
+                THEN uom_value
+            END
+        ) AS v_aero,
 
-        MAX(CASE
-            WHEN estacion_id = '3196'
-            THEN viento_velocidad
-        END) AS v_cuatro,
+        MAX(
+            CASE
+                WHEN estacion_id = '3196'
+                 AND variable = 'viento_velocidad'
+                THEN uom_value
+            END
+        ) AS v_cuatro,
 
-        MAX(CASE
-            WHEN estacion_id = '3200'
-            THEN viento_racha
-        END) AS r_getafe,
+        MAX(
+            CASE
+                WHEN estacion_id = '3200'
+                 AND variable = 'viento_racha'
+                THEN uom_value
+            END
+        ) AS r_getafe,
 
-        MAX(CASE
-            WHEN estacion_id = '3129'
-            THEN viento_racha
-        END) AS r_aero,
+        MAX(
+            CASE
+                WHEN estacion_id = '3129'
+                 AND variable = 'viento_racha'
+                THEN uom_value
+            END
+        ) AS r_aero,
 
-        MAX(CASE
-            WHEN estacion_id = '3196'
-            THEN viento_racha
-        END) AS r_cuatro
+        MAX(
+            CASE
+                WHEN estacion_id = '3196'
+                 AND variable = 'viento_racha'
+                THEN uom_value
+            END
+        ) AS r_cuatro
 
-    FROM b3_final
+    FROM b3_final_long
 
     GROUP BY fecha
 ),
 
 
 -- =============================================================================
--- B4 PRESIÓN
---
--- Construimos las series de presión de los tres donantes.
+-- DONANTES PRESIÓN
 -- =============================================================================
+
 donantes_presion AS (
     SELECT
         fecha,
 
-        MAX(CASE
-            WHEN estacion_id = '3200'
-            THEN presion_max
-        END) AS pmax_getafe,
+        MAX(
+            CASE
+                WHEN estacion_id = '3200'
+                 AND variable = 'presion_max'
+                THEN uom_value
+            END
+        ) AS pmax_getafe,
 
-        MAX(CASE
-            WHEN estacion_id = '3129'
-            THEN presion_max
-        END) AS pmax_aero,
+        MAX(
+            CASE
+                WHEN estacion_id = '3129'
+                 AND variable = 'presion_max'
+                THEN uom_value
+            END
+        ) AS pmax_aero,
 
-        MAX(CASE
-            WHEN estacion_id = '3196'
-            THEN presion_max
-        END) AS pmax_cuatro,
+        MAX(
+            CASE
+                WHEN estacion_id = '3196'
+                 AND variable = 'presion_max'
+                THEN uom_value
+            END
+        ) AS pmax_cuatro,
 
-        MAX(CASE
-            WHEN estacion_id = '3200'
-            THEN presion_min
-        END) AS pmin_getafe,
+        MAX(
+            CASE
+                WHEN estacion_id = '3200'
+                 AND variable = 'presion_min'
+                THEN uom_value
+            END
+        ) AS pmin_getafe,
 
-        MAX(CASE
-            WHEN estacion_id = '3129'
-            THEN presion_min
-        END) AS pmin_aero,
+        MAX(
+            CASE
+                WHEN estacion_id = '3129'
+                 AND variable = 'presion_min'
+                THEN uom_value
+            END
+        ) AS pmin_aero,
 
-        MAX(CASE
-            WHEN estacion_id = '3196'
-            THEN presion_min
-        END) AS pmin_cuatro
+        MAX(
+            CASE
+                WHEN estacion_id = '3196'
+                 AND variable = 'presion_min'
+                THEN uom_value
+            END
+        ) AS pmin_cuatro
 
-    FROM b3_final
+    FROM b3_final_long
 
     GROUP BY fecha
 ),
 
 
 -- =============================================================================
--- B4 PRESIÓN
---
--- Datos de entrenamiento para regresión múltiple.
---
--- Importante:
--- No usamos las fechas que están siendo imputadas en Retiro.
--- El modelo se ajusta sobre observaciones donde Retiro y las 3 donantes
--- están disponibles.
+-- ENTRENAMIENTO PRESIÓN
 -- =============================================================================
+
 training_presion AS (
     SELECT
         r.fecha,
 
-        r.presion_max AS y_max,
-        r.presion_min AS y_min,
+        r.uom_value AS y_max,
+        pmin.uom_value AS y_min,
 
-        d.pmax_getafe AS x1_max,
-        d.pmax_aero AS x2_max,
-        d.pmax_cuatro AS x3_max,
+        d.pmax_getafe,
+        d.pmax_aero,
+        d.pmax_cuatro,
 
-        d.pmin_getafe AS x1_min,
-        d.pmin_aero AS x2_min,
-        d.pmin_cuatro AS x3_min
+        d.pmin_getafe,
+        d.pmin_aero,
+        d.pmin_cuatro
 
-    FROM b3_final r
+    FROM b3_final_long r
+
+    INNER JOIN b3_final_long pmin
+        ON  r.fecha = pmin.fecha
+        AND r.estacion_id = pmin.estacion_id
+        AND pmin.variable = 'presion_min'
 
     INNER JOIN donantes_presion d
         ON r.fecha = d.fecha
 
     WHERE r.estacion_id = '3195'
+      AND r.variable = 'presion_max'
 
-      AND r.presion_max IS NOT NULL
-      AND r.presion_min IS NOT NULL
+      AND r.uom_value IS NOT NULL
+      AND pmin.uom_value IS NOT NULL
 
       AND d.pmax_getafe IS NOT NULL
       AND d.pmax_aero IS NOT NULL
@@ -449,302 +421,355 @@ training_presion AS (
 
 
 -- =============================================================================
--- Estadísticos de regresión múltiple
---
--- Se centra X e Y y se resuelve:
---
---     beta = (X'X)^-1 X'Y
---
--- para las tres estaciones donantes.
+-- MEDIAS
 -- =============================================================================
-stats_presion AS (
 
-    -- ============================================================
-    -- 1. MEDIAS DE LAS VARIABLES DE ENTRENAMIENTO
-    -- ============================================================
-    WITH medias AS (
-        SELECT
-            AVG(y_max) AS ybar_max,
-            AVG(x1_max) AS x1bar_max,
-            AVG(x2_max) AS x2bar_max,
-            AVG(x3_max) AS x3bar_max,
-
-            AVG(y_min) AS ybar_min,
-            AVG(x1_min) AS x1bar_min,
-            AVG(x2_min) AS x2bar_min,
-            AVG(x3_min) AS x3bar_min
-
-        FROM training_presion
-    )
-
+medias_presion AS (
     SELECT
+        AVG(y_max) AS ybar_max,
 
-        -- ========================================================
-        -- MEDIAS
-        -- ========================================================
+        AVG(pmax_getafe) AS x1bar_max,
+        AVG(pmax_aero) AS x2bar_max,
+        AVG(pmax_cuatro) AS x3bar_max,
 
-        ANY_VALUE(m.ybar_max) AS ybar_max,
-        ANY_VALUE(m.x1bar_max) AS x1bar_max,
-        ANY_VALUE(m.x2bar_max) AS x2bar_max,
-        ANY_VALUE(m.x3bar_max) AS x3bar_max,
+        AVG(y_min) AS ybar_min,
 
-        ANY_VALUE(m.ybar_min) AS ybar_min,
-        ANY_VALUE(m.x1bar_min) AS x1bar_min,
-        ANY_VALUE(m.x2bar_min) AS x2bar_min,
-        ANY_VALUE(m.x3bar_min) AS x3bar_min,
+        AVG(pmin_getafe) AS x1bar_min,
+        AVG(pmin_aero) AS x2bar_min,
+        AVG(pmin_cuatro) AS x3bar_min
 
-        -- ========================================================
-        -- MATRIZ X'X PARA PRESIÓN MAX
-        -- ========================================================
-
-        SUM(
-            (t.x1_max - m.x1bar_max)
-            * (t.x1_max - m.x1bar_max)
-        ) AS s11_max,
-
-        SUM(
-            (t.x2_max - m.x2bar_max)
-            * (t.x2_max - m.x2bar_max)
-        ) AS s22_max,
-
-        SUM(
-            (t.x3_max - m.x3bar_max)
-            * (t.x3_max - m.x3bar_max)
-        ) AS s33_max,
-
-        SUM(
-            (t.x1_max - m.x1bar_max)
-            * (t.x2_max - m.x2bar_max)
-        ) AS s12_max,
-
-        SUM(
-            (t.x1_max - m.x1bar_max)
-            * (t.x3_max - m.x3bar_max)
-        ) AS s13_max,
-
-        SUM(
-            (t.x2_max - m.x2bar_max)
-            * (t.x3_max - m.x3bar_max)
-        ) AS s23_max,
-
-        -- ========================================================
-        -- MATRIZ X'Y PARA PRESIÓN MAX
-        -- ========================================================
-
-        SUM(
-            (t.x1_max - m.x1bar_max)
-            * (t.y_max - m.ybar_max)
-        ) AS sy1_max,
-
-        SUM(
-            (t.x2_max - m.x2bar_max)
-            * (t.y_max - m.ybar_max)
-        ) AS sy2_max,
-
-        SUM(
-            (t.x3_max - m.x3bar_max)
-            * (t.y_max - m.ybar_max)
-        ) AS sy3_max,
-
-        -- ========================================================
-        -- MATRIZ X'X PARA PRESIÓN MIN
-        -- ========================================================
-
-        SUM(
-            (t.x1_min - m.x1bar_min)
-            * (t.x1_min - m.x1bar_min)
-        ) AS s11_min,
-
-        SUM(
-            (t.x2_min - m.x2bar_min)
-            * (t.x2_min - m.x2bar_min)
-        ) AS s22_min,
-
-        SUM(
-            (t.x3_min - m.x3bar_min)
-            * (t.x3_min - m.x3bar_min)
-        ) AS s33_min,
-
-        SUM(
-            (t.x1_min - m.x1bar_min)
-            * (t.x2_min - m.x2bar_min)
-        ) AS s12_min,
-
-        SUM(
-            (t.x1_min - m.x1bar_min)
-            * (t.x3_min - m.x3bar_min)
-        ) AS s13_min,
-
-        SUM(
-            (t.x2_min - m.x2bar_min)
-            * (t.x3_min - m.x3bar_min)
-        ) AS s23_min,
-
-        -- ========================================================
-        -- MATRIZ X'Y PARA PRESIÓN MIN
-        -- ========================================================
-
-        SUM(
-            (t.x1_min - m.x1bar_min)
-            * (t.y_min - m.ybar_min)
-        ) AS sy1_min,
-
-        SUM(
-            (t.x2_min - m.x2bar_min)
-            * (t.y_min - m.ybar_min)
-        ) AS sy2_min,
-
-        SUM(
-            (t.x3_min - m.x3bar_min)
-            * (t.y_min - m.ybar_min)
-        ) AS sy3_min
-
-    FROM training_presion t
-    CROSS JOIN medias m
+    FROM training_presion
 ),
 
 
 -- =============================================================================
--- B4 PRESIÓN
--- Coeficientes mediante inversa de matriz 3x3.
+-- ESTADÍSTICOS PRESIÓN
 -- =============================================================================
+
+stats_presion AS (
+    SELECT
+        m.*,
+
+        -- =============================================================
+        -- MAX
+        -- =============================================================
+
+        SUM(
+            (t.pmax_getafe - m.x1bar_max)
+            * (t.pmax_getafe - m.x1bar_max)
+        ) AS s11_max,
+
+        SUM(
+            (t.pmax_aero - m.x2bar_max)
+            * (t.pmax_aero - m.x2bar_max)
+        ) AS s22_max,
+
+        SUM(
+            (t.pmax_cuatro - m.x3bar_max)
+            * (t.pmax_cuatro - m.x3bar_max)
+        ) AS s33_max,
+
+        SUM(
+            (t.pmax_getafe - m.x1bar_max)
+            * (t.pmax_aero - m.x2bar_max)
+        ) AS s12_max,
+
+        SUM(
+            (t.pmax_getafe - m.x1bar_max)
+            * (t.pmax_cuatro - m.x3bar_max)
+        ) AS s13_max,
+
+        SUM(
+            (t.pmax_aero - m.x2bar_max)
+            * (t.pmax_cuatro - m.x3bar_max)
+        ) AS s23_max,
+
+        SUM(
+            (t.pmax_getafe - m.x1bar_max)
+            * (t.y_max - m.ybar_max)
+        ) AS sy1_max,
+
+        SUM(
+            (t.pmax_aero - m.x2bar_max)
+            * (t.y_max - m.ybar_max)
+        ) AS sy2_max,
+
+        SUM(
+            (t.pmax_cuatro - m.x3bar_max)
+            * (t.y_max - m.ybar_max)
+        ) AS sy3_max,
+
+
+        -- =============================================================
+        -- MIN
+        -- =============================================================
+
+        SUM(
+            (t.pmin_getafe - m.x1bar_min)
+            * (t.pmin_getafe - m.x1bar_min)
+        ) AS s11_min,
+
+        SUM(
+            (t.pmin_aero - m.x2bar_min)
+            * (t.pmin_aero - m.x2bar_min)
+        ) AS s22_min,
+
+        SUM(
+            (t.pmin_cuatro - m.x3bar_min)
+            * (t.pmin_cuatro - m.x3bar_min)
+        ) AS s33_min,
+
+        SUM(
+            (t.pmin_getafe - m.x1bar_min)
+            * (t.pmin_aero - m.x2bar_min)
+        ) AS s12_min,
+
+        SUM(
+            (t.pmin_getafe - m.x1bar_min)
+            * (t.pmin_cuatro - m.x3bar_min)
+        ) AS s13_min,
+
+        SUM(
+            (t.pmin_aero - m.x2bar_min)
+            * (t.pmin_cuatro - m.x3bar_min)
+        ) AS s23_min,
+
+        SUM(
+            (t.pmin_getafe - m.x1bar_min)
+            * (t.y_min - m.ybar_min)
+        ) AS sy1_min,
+
+        SUM(
+            (t.pmin_aero - m.x2bar_min)
+            * (t.y_min - m.ybar_min)
+        ) AS sy2_min,
+
+        SUM(
+            (t.pmin_cuatro - m.x3bar_min)
+            * (t.y_min - m.ybar_min)
+        ) AS sy3_min
+
+    FROM training_presion t
+    CROSS JOIN medias_presion m
+
+    GROUP BY
+        m.ybar_max,
+        m.x1bar_max,
+        m.x2bar_max,
+        m.x3bar_max,
+        m.ybar_min,
+        m.x1bar_min,
+        m.x2bar_min,
+        m.x3bar_min
+),
+
+
+-- =============================================================================
+-- DETERMINANTES
+-- =============================================================================
+
 coeficientes_presion AS (
     SELECT
         *,
-        
-        -- Determinante MAX
+
         (
-            s11_max * (s22_max * s33_max - s23_max * s23_max)
-            - s12_max * (s12_max * s33_max - s23_max * s13_max)
-            + s13_max * (s12_max * s23_max - s22_max * s13_max)
+            s11_max * (
+                s22_max * s33_max
+                - s23_max * s23_max
+            )
+            - s12_max * (
+                s12_max * s33_max
+                - s23_max * s13_max
+            )
+            + s13_max * (
+                s12_max * s23_max
+                - s22_max * s13_max
+            )
         ) AS det_max,
 
-        -- Determinante MIN
         (
-            s11_min * (s22_min * s33_min - s23_min * s23_min)
-            - s12_min * (s12_min * s33_min - s23_min * s13_min)
-            + s13_min * (s12_min * s23_min - s22_min * s13_min)
+            s11_min * (
+                s22_min * s33_min
+                - s23_min * s23_min
+            )
+            - s12_min * (
+                s12_min * s33_min
+                - s23_min * s13_min
+            )
+            + s13_min * (
+                s12_min * s23_min
+                - s22_min * s13_min
+            )
         ) AS det_min
 
     FROM stats_presion
 ),
 
 
+-- =============================================================================
+-- BETAS
+-- =============================================================================
+
 betas_presion AS (
     SELECT
 
-        -- =========================
-        -- PRESIÓN MAX
-        -- =========================
+        -- -------------------------------------------------------------
+        -- MAX
+        -- -------------------------------------------------------------
 
         ybar_max,
-
-        (
-            (
-                (s22_max * s33_max - s23_max * s23_max) * sy1_max
-                + (s13_max * s23_max - s12_max * s33_max) * sy2_max
-                + (s12_max * s23_max - s13_max * s22_max) * sy3_max
-            )
-            / NULLIF(det_max, 0)
-        ) AS beta1_max,
-
-        (
-            (
-                (s13_max * s23_max - s12_max * s33_max) * sy1_max
-                + (s11_max * s33_max - s13_max * s13_max) * sy2_max
-                + (s12_max * s13_max - s11_max * s23_max) * sy3_max
-            )
-            / NULLIF(det_max, 0)
-        ) AS beta2_max,
-
-        (
-            (
-                (s12_max * s23_max - s13_max * s22_max) * sy1_max
-                + (s12_max * s13_max - s11_max * s23_max) * sy2_max
-                + (s11_max * s22_max - s12_max * s12_max) * sy3_max
-            )
-            / NULLIF(det_max, 0)
-        ) AS beta3_max,
-
-        -- =========================
-        -- PRESIÓN MIN
-        -- =========================
-
-        ybar_min,
-
-        (
-            (
-                (s22_min * s33_min - s23_min * s23_min) * sy1_min
-                + (s13_min * s23_min - s12_min * s33_min) * sy2_min
-                + (s12_min * s23_min - s13_min * s22_min) * sy3_min
-            )
-            / NULLIF(det_min, 0)
-        ) AS beta1_min,
-
-        (
-            (
-                (s13_min * s23_min - s12_min * s33_min) * sy1_min
-                + (s11_min * s33_min - s13_min * s13_min) * sy2_min
-                + (s12_min * s13_min - s11_min * s23_min) * sy3_min
-            )
-            / NULLIF(det_min, 0)
-        ) AS beta2_min,
-
-        (
-            (
-                (s12_min * s23_min - s13_min * s22_min) * sy1_min
-                + (s12_min * s13_min - s11_min * s23_min) * sy2_min
-                + (s11_min * s22_min - s12_min * s12_min) * sy3_min
-            )
-            / NULLIF(det_min, 0)
-        ) AS beta3_min,
-
         x1bar_max,
         x2bar_max,
         x3bar_max,
 
+        (
+            (
+                (s22_max * s33_max - s23_max * s23_max)
+                * sy1_max
+            )
+            +
+            (
+                (s13_max * s23_max - s12_max * s33_max)
+                * sy2_max
+            )
+            +
+            (
+                (s12_max * s23_max - s13_max * s22_max)
+                * sy3_max
+            )
+        ) / NULLIF(det_max, 0) AS beta1_max,
+
+        (
+            (
+                (s13_max * s23_max - s12_max * s33_max)
+                * sy1_max
+            )
+            +
+            (
+                (s11_max * s33_max - s13_max * s13_max)
+                * sy2_max
+            )
+            +
+            (
+                (s12_max * s13_max - s11_max * s23_max)
+                * sy3_max
+            )
+        ) / NULLIF(det_max, 0) AS beta2_max,
+
+        (
+            (
+                (s12_max * s23_max - s13_max * s22_max)
+                * sy1_max
+            )
+            +
+            (
+                (s12_max * s13_max - s11_max * s23_max)
+                * sy2_max
+            )
+            +
+            (
+                (s11_max * s22_max - s12_max * s12_max)
+                * sy3_max
+            )
+        ) / NULLIF(det_max, 0) AS beta3_max,
+
+
+        -- -------------------------------------------------------------
+        -- MIN
+        -- -------------------------------------------------------------
+
+        ybar_min,
         x1bar_min,
         x2bar_min,
-        x3bar_min
+        x3bar_min,
+
+        (
+            (
+                (s22_min * s33_min - s23_min * s23_min)
+                * sy1_min
+            )
+            +
+            (
+                (s13_min * s23_min - s12_min * s33_min)
+                * sy2_min
+            )
+            +
+            (
+                (s12_min * s23_min - s13_min * s22_min)
+                * sy3_min
+            )
+        ) / NULLIF(det_min, 0) AS beta1_min,
+
+        (
+            (
+                (s13_min * s23_min - s12_min * s33_min)
+                * sy1_min
+            )
+            +
+            (
+                (s11_min * s33_min - s13_min * s13_min)
+                * sy2_min
+            )
+            +
+            (
+                (s12_min * s13_min - s11_min * s23_min)
+                * sy3_min
+            )
+        ) / NULLIF(det_min, 0) AS beta2_min,
+
+        (
+            (
+                (s12_min * s23_min - s13_min * s22_min)
+                * sy1_min
+            )
+            +
+            (
+                (s12_min * s13_min - s11_min * s23_min)
+                * sy2_min
+            )
+            +
+            (
+                (s11_min * s22_min - s12_min * s12_min)
+                * sy3_min
+            )
+        ) / NULLIF(det_min, 0) AS beta3_min
 
     FROM coeficientes_presion
 ),
 
 
 -- =============================================================================
--- B4 FINAL
--- Imputación de presión de Retiro.
+-- B4
 --
--- Solo se aplica a los huecos de octubre de 2024.
+-- IMPUTACIÓN DE VIENTO Y PRESIÓN
 -- =============================================================================
-capa_analitica_final AS (
-    SELECT
 
+b4_resultado AS (
+    SELECT
         b.fecha,
         b.estacion_id,
+        b.variable,
+        b.uom,
 
-        b.temp_media,
-        b.temp_min,
-        b.temp_max,
+        b.uom_value AS valor_original,
 
-        b.humedad_media,
-        b.humedad_min,
-        b.humedad_max,
 
-        b.insolacion,
-        b.precipitacion,
-
-        b.direccion_racha_max,
-
-        -- -------------------------------------------------------------
-        -- VIENTO
-        -- -------------------------------------------------------------
+        -- =============================================================
+        -- VALOR FINAL
+        -- =============================================================
 
         CASE
+
+            -- ---------------------------------------------------------
+            -- VIENTO VELOCIDAD
+            -- ---------------------------------------------------------
+
             WHEN b.estacion_id = '3195'
-                 AND b.fecha BETWEEN DATE '2020-10-01'
-                                 AND DATE '2022-03-31'
-                 AND b.viento_velocidad IS NULL
+             AND b.variable = 'viento_velocidad'
+             AND b.fecha BETWEEN DATE '2020-10-01'
+                             AND DATE '2022-03-31'
+             AND b.uom_value IS NULL
+
             THEN
                 COALESCE(
                     0.518
@@ -761,33 +786,38 @@ capa_analitica_final AS (
                     + 0.015 * d.v_cuatro
                 )
 
-            ELSE b.viento_velocidad
-        END AS viento_velocidad,
 
-        CASE
+            -- ---------------------------------------------------------
+            -- VIENTO RACHA
+            -- ---------------------------------------------------------
+
             WHEN b.estacion_id = '3195'
-                 AND b.fecha BETWEEN DATE '2020-10-01'
-                                 AND DATE '2022-03-31'
-                 AND b.viento_racha IS NULL
+             AND b.variable = 'viento_racha'
+             AND b.fecha BETWEEN DATE '2020-10-01'
+                             AND DATE '2022-03-31'
+             AND b.uom_value IS NULL
+
             THEN
                 0.518
                 + 0.293 * d.r_getafe
                 + 0.173 * d.r_aero
                 + 0.009 * d.r_cuatro
 
-            ELSE b.viento_racha
-        END AS viento_racha,
 
-        -- -------------------------------------------------------------
-        -- PRESIÓN
-        -- B4: Retiro, octubre 2024
-        -- -------------------------------------------------------------
+            -- ---------------------------------------------------------
+            -- PRESIÓN MAX
+            -- ---------------------------------------------------------
 
-        CASE
             WHEN b.estacion_id = '3195'
-                 AND b.fecha BETWEEN DATE '2024-10-01'
-                                 AND DATE '2024-10-31'
-                 AND b.presion_max IS NULL
+             AND b.variable = 'presion_max'
+             AND b.fecha BETWEEN DATE '2024-10-01'
+                             AND DATE '2024-10-31'
+             AND b.uom_value IS NULL
+             AND bp.beta1_max IS NOT NULL
+             AND dp.pmax_getafe IS NOT NULL
+             AND dp.pmax_aero IS NOT NULL
+             AND dp.pmax_cuatro IS NOT NULL
+
             THEN
                 bp.ybar_max
                 + bp.beta1_max
@@ -797,14 +827,21 @@ capa_analitica_final AS (
                 + bp.beta3_max
                     * (dp.pmax_cuatro - bp.x3bar_max)
 
-            ELSE b.presion_max
-        END AS presion_max,
 
-        CASE
+            -- ---------------------------------------------------------
+            -- PRESIÓN MIN
+            -- ---------------------------------------------------------
+
             WHEN b.estacion_id = '3195'
-                 AND b.fecha BETWEEN DATE '2024-10-01'
-                                 AND DATE '2024-10-31'
-                 AND b.presion_min IS NULL
+             AND b.variable = 'presion_min'
+             AND b.fecha BETWEEN DATE '2024-10-01'
+                             AND DATE '2024-10-31'
+             AND b.uom_value IS NULL
+             AND bp.beta1_min IS NOT NULL
+             AND dp.pmin_getafe IS NOT NULL
+             AND dp.pmin_aero IS NOT NULL
+             AND dp.pmin_cuatro IS NOT NULL
+
             THEN
                 bp.ybar_min
                 + bp.beta1_min
@@ -814,77 +851,117 @@ capa_analitica_final AS (
                 + bp.beta3_min
                     * (dp.pmin_cuatro - bp.x3bar_min)
 
-            ELSE b.presion_min
-        END AS presion_min,
 
-        -- -------------------------------------------------------------
-        -- FLAGS
-        -- -------------------------------------------------------------
+            -- ---------------------------------------------------------
+            -- ORIGINAL / SIN REGLA B4
+            -- ---------------------------------------------------------
+
+            ELSE b.uom_value
+
+        END AS uom_value,
+
+
+        -- =============================================================
+        -- IMPUTADO
+        -- =============================================================
 
         CASE
-            WHEN b.flag_interp_corta THEN TRUE
 
-            WHEN b.estacion_id = '3195'
-                 AND b.fecha BETWEEN DATE '2020-10-01'
-                                 AND DATE '2022-03-31'
-                 AND (
-                     b.viento_velocidad IS NULL
-                     OR b.viento_racha IS NULL
-                 )
+            WHEN b.flag_interp_corta
                 THEN TRUE
 
             WHEN b.estacion_id = '3195'
-                 AND b.fecha BETWEEN DATE '2024-10-01'
-                                 AND DATE '2024-10-31'
-                 AND (
-                     b.presion_max IS NULL
-                     OR b.presion_min IS NULL
-                 )
-                THEN TRUE
+             AND b.variable IN (
+                 'viento_velocidad',
+                 'viento_racha'
+             )
+             AND b.fecha BETWEEN DATE '2020-10-01'
+                             AND DATE '2022-03-31'
+             AND b.uom_value IS NULL
+
+            THEN TRUE
+
+            WHEN b.estacion_id = '3195'
+             AND b.variable = 'presion_max'
+             AND b.fecha BETWEEN DATE '2024-10-01'
+                             AND DATE '2024-10-31'
+             AND b.uom_value IS NULL
+             AND bp.beta1_max IS NOT NULL
+             AND dp.pmax_getafe IS NOT NULL
+             AND dp.pmax_aero IS NOT NULL
+             AND dp.pmax_cuatro IS NOT NULL
+
+            THEN TRUE
+
+            WHEN b.estacion_id = '3195'
+             AND b.variable = 'presion_min'
+             AND b.fecha BETWEEN DATE '2024-10-01'
+                             AND DATE '2024-10-31'
+             AND b.uom_value IS NULL
+             AND bp.beta1_min IS NOT NULL
+             AND dp.pmin_getafe IS NOT NULL
+             AND dp.pmin_aero IS NOT NULL
+             AND dp.pmin_cuatro IS NOT NULL
+
+            THEN TRUE
 
             ELSE FALSE
-        END AS flag_imputado,
+
+        END AS imputado,
+
+
+        -- =============================================================
+        -- MÉTODO
+        -- =============================================================
 
         CASE
+
             WHEN b.flag_interp_corta
                 THEN 'interpolacion_lineal_corta'
 
             WHEN b.estacion_id = '3195'
-                 AND b.fecha BETWEEN DATE '2020-10-01'
-                                 AND DATE '2022-03-31'
-                 AND (
-                     b.viento_velocidad IS NULL
-                     OR b.viento_racha IS NULL
-                 )
+             AND b.variable IN (
+                 'viento_velocidad',
+                 'viento_racha'
+             )
+             AND b.fecha BETWEEN DATE '2020-10-01'
+                             AND DATE '2022-03-31'
+             AND b.uom_value IS NULL
+
                 THEN 'regresion_multiple_viento'
 
             WHEN b.estacion_id = '3195'
-                 AND b.fecha BETWEEN DATE '2024-10-01'
-                                 AND DATE '2024-10-31'
-                 AND (
-                     b.presion_max IS NULL
-                     OR b.presion_min IS NULL
-                 )
+             AND b.variable IN (
+                 'presion_max',
+                 'presion_min'
+             )
+             AND b.fecha BETWEEN DATE '2024-10-01'
+                             AND DATE '2024-10-31'
+             AND b.uom_value IS NULL
+
                 THEN 'regresion_multiple_presion'
 
-            -- B5: Retiro precipitación
             WHEN b.estacion_id = '3195'
-                 AND b.fecha BETWEEN DATE '2023-08-01'
-                                 AND DATE '2023-11-30'
-                 AND b.precipitacion IS NULL
+             AND b.variable = 'precipitacion'
+             AND b.fecha BETWEEN DATE '2023-08-01'
+                             AND DATE '2023-11-30'
+             AND b.uom_value IS NULL
+
                 THEN 'no_imputado_precipitacion'
 
-            -- B6: Cuatro Vientos insolación
             WHEN b.estacion_id = '3196'
-                 AND b.fecha BETWEEN DATE '2024-11-01'
-                                 AND DATE '2024-12-31'
-                 AND b.insolacion IS NULL
+             AND b.variable = 'insolacion'
+             AND b.fecha BETWEEN DATE '2024-11-01'
+                             AND DATE '2024-12-31'
+             AND b.uom_value IS NULL
+
                 THEN 'no_imputado_insolacion'
 
             ELSE 'original'
+
         END AS metodo_imputacion
 
-    FROM b3_final b
+    FROM b3_final_long b
 
     LEFT JOIN donantes_viento d
         ON b.fecha = d.fecha
@@ -893,8 +970,36 @@ capa_analitica_final AS (
         ON b.fecha = dp.fecha
 
     CROSS JOIN betas_presion bp
+),
+
+
+-- =============================================================================
+-- RESULTADO FINAL
+-- =============================================================================
+
+capa_analitica_final AS (
+    SELECT
+        fecha,
+        estacion_id,
+        variable,
+        uom,
+        uom_value,
+
+        json_object(
+            'imputado', imputado,
+            'metodo_imputacion', metodo_imputacion
+        ) AS extra
+
+    FROM b4_resultado
 )
 
 
-SELECT *
+SELECT
+    fecha,
+    estacion_id,
+    variable,
+    uom,
+    uom_value,
+    extra
+
 FROM capa_analitica_final;
