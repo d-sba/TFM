@@ -18,6 +18,10 @@ pipelines:
     output_parquet: "data/enriched/fact/meteo_final.parquet"
     sources:
       meteo_normalized: "meteo_normalized_ds"
+    tests:
+      - name: "No hay uoms nulss"
+        sql_file: "tests/uoms_no_nulos.sql"
+        severity: "warning"
 
   # DIMS
   - name: "metadata_estaciones_aire"
