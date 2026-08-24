@@ -2,8 +2,7 @@ WITH
 
 -- =============================================================================
 -- B1 + B2
---
--- Correcciones específicas de calidad.
+-- Eliminamos la estacion de CU completa y ciertos pares estacion(variable)
 -- =============================================================================
 
 b1_b2_limpieza AS (
@@ -12,25 +11,22 @@ b1_b2_limpieza AS (
         estacion_id,
         variable_meteo AS variable,
         uom,
-
-        CASE
-            WHEN estacion_id = '3200'
-                 AND variable_meteo IN (
-                     'humedad_max',
-                     'humedad_min'
-                 )
-                THEN NULL
-
-            WHEN estacion_id = '3195'
-                 AND variable_meteo = 'insolacion'
-                THEN NULL
-
-            ELSE uom_value
-        END AS uom_value
+        uom_value
 
     FROM meteo_normalized
 
     WHERE estacion_id != '3194U'
+      AND NOT (
+          estacion_id = '3200'
+          AND variable_meteo IN (
+              'humedad_max',
+              'humedad_min'
+          )
+      )
+      AND NOT (
+          estacion_id = '3195'
+          AND variable_meteo = 'insolacion'
+      )
 ),
 
 
@@ -786,72 +782,6 @@ b4_resultado AS (
                     + 0.015 * d.v_cuatro
                 )
 
-
-            -- ---------------------------------------------------------
-            -- VIENTO RACHA
-            -- ---------------------------------------------------------
-
-            WHEN b.estacion_id = '3195'
-             AND b.variable = 'viento_racha'
-             AND b.fecha BETWEEN DATE '2020-10-01'
-                             AND DATE '2022-03-31'
-             AND b.uom_value IS NULL
-
-            THEN
-                0.518
-                + 0.293 * d.r_getafe
-                + 0.173 * d.r_aero
-                + 0.009 * d.r_cuatro
-
-
-            -- ---------------------------------------------------------
-            -- PRESIÓN MAX
-            -- ---------------------------------------------------------
-
-            WHEN b.estacion_id = '3195'
-             AND b.variable = 'presion_max'
-             AND b.fecha BETWEEN DATE '2024-10-01'
-                             AND DATE '2024-10-31'
-             AND b.uom_value IS NULL
-             AND bp.beta1_max IS NOT NULL
-             AND dp.pmax_getafe IS NOT NULL
-             AND dp.pmax_aero IS NOT NULL
-             AND dp.pmax_cuatro IS NOT NULL
-
-            THEN
-                bp.ybar_max
-                + bp.beta1_max
-                    * (dp.pmax_getafe - bp.x1bar_max)
-                + bp.beta2_max
-                    * (dp.pmax_aero - bp.x2bar_max)
-                + bp.beta3_max
-                    * (dp.pmax_cuatro - bp.x3bar_max)
-
-
-            -- ---------------------------------------------------------
-            -- PRESIÓN MIN
-            -- ---------------------------------------------------------
-
-            WHEN b.estacion_id = '3195'
-             AND b.variable = 'presion_min'
-             AND b.fecha BETWEEN DATE '2024-10-01'
-                             AND DATE '2024-10-31'
-             AND b.uom_value IS NULL
-             AND bp.beta1_min IS NOT NULL
-             AND dp.pmin_getafe IS NOT NULL
-             AND dp.pmin_aero IS NOT NULL
-             AND dp.pmin_cuatro IS NOT NULL
-
-            THEN
-                bp.ybar_min
-                + bp.beta1_min
-                    * (dp.pmin_getafe - bp.x1bar_min)
-                + bp.beta2_min
-                    * (dp.pmin_aero - bp.x2bar_min)
-                + bp.beta3_min
-                    * (dp.pmin_cuatro - bp.x3bar_min)
-
-
             -- ---------------------------------------------------------
             -- ORIGINAL / SIN REGLA B4
             -- ---------------------------------------------------------
@@ -871,37 +801,10 @@ b4_resultado AS (
                 THEN TRUE
 
             WHEN b.estacion_id = '3195'
-             AND b.variable IN (
-                 'viento_velocidad',
-                 'viento_racha'
-             )
+             AND b.variable = 'viento_velocidad'
              AND b.fecha BETWEEN DATE '2020-10-01'
                              AND DATE '2022-03-31'
              AND b.uom_value IS NULL
-
-            THEN TRUE
-
-            WHEN b.estacion_id = '3195'
-             AND b.variable = 'presion_max'
-             AND b.fecha BETWEEN DATE '2024-10-01'
-                             AND DATE '2024-10-31'
-             AND b.uom_value IS NULL
-             AND bp.beta1_max IS NOT NULL
-             AND dp.pmax_getafe IS NOT NULL
-             AND dp.pmax_aero IS NOT NULL
-             AND dp.pmax_cuatro IS NOT NULL
-
-            THEN TRUE
-
-            WHEN b.estacion_id = '3195'
-             AND b.variable = 'presion_min'
-             AND b.fecha BETWEEN DATE '2024-10-01'
-                             AND DATE '2024-10-31'
-             AND b.uom_value IS NULL
-             AND bp.beta1_min IS NOT NULL
-             AND dp.pmin_getafe IS NOT NULL
-             AND dp.pmin_aero IS NOT NULL
-             AND dp.pmin_cuatro IS NOT NULL
 
             THEN TRUE
 
@@ -920,26 +823,12 @@ b4_resultado AS (
                 THEN 'interpolacion_lineal_corta'
 
             WHEN b.estacion_id = '3195'
-             AND b.variable IN (
-                 'viento_velocidad',
-                 'viento_racha'
-             )
+             AND b.variable = 'viento_velocidad'
              AND b.fecha BETWEEN DATE '2020-10-01'
                              AND DATE '2022-03-31'
              AND b.uom_value IS NULL
 
                 THEN 'regresion_multiple_viento'
-
-            WHEN b.estacion_id = '3195'
-             AND b.variable IN (
-                 'presion_max',
-                 'presion_min'
-             )
-             AND b.fecha BETWEEN DATE '2024-10-01'
-                             AND DATE '2024-10-31'
-             AND b.uom_value IS NULL
-
-                THEN 'regresion_multiple_presion'
 
             WHEN b.estacion_id = '3195'
              AND b.variable = 'precipitacion'
@@ -974,6 +863,213 @@ b4_resultado AS (
 
 
 -- =============================================================================
+-- B5
+--
+-- COMPLETITUD PARA MODELADO
+--
+-- La tabla enriched es la entrada directa del modelo y, por tanto, no puede
+-- contener valores nulos. Los huecos que no resolvieron B3/B4 se completan con
+-- la media de las estaciones donantes disponible ese día. Si no hay donantes,
+-- se usa la mediana de la misma estación y mes; como último recurso, la mediana
+-- global de la variable. La dirección se trata de forma circular.
+-- =============================================================================
+
+fallback_diario AS (
+    SELECT
+        fecha,
+        variable,
+
+        AVG(
+            CASE
+                WHEN variable != 'direccion_racha_max'
+                THEN uom_value
+            END
+        ) AS media_donantes_diaria,
+
+        MOD(
+            DEGREES(
+                ATAN2(
+                    AVG(
+                        CASE
+                            WHEN variable = 'direccion_racha_max'
+                            THEN SIN(RADIANS(uom_value))
+                        END
+                    ),
+                    AVG(
+                        CASE
+                            WHEN variable = 'direccion_racha_max'
+                            THEN COS(RADIANS(uom_value))
+                        END
+                    )
+                )
+            ) + 360,
+            360
+        ) AS direccion_donantes_diaria
+
+    FROM b4_resultado
+
+    GROUP BY
+        fecha,
+        variable
+),
+
+
+fallback_estacional AS (
+    SELECT
+        estacion_id,
+        variable,
+        EXTRACT(MONTH FROM fecha) AS mes,
+
+        MEDIAN(
+            CASE
+                WHEN variable != 'direccion_racha_max'
+                THEN uom_value
+            END
+        ) AS mediana_estacion_mes,
+
+        MOD(
+            DEGREES(
+                ATAN2(
+                    AVG(
+                        CASE
+                            WHEN variable = 'direccion_racha_max'
+                            THEN SIN(RADIANS(uom_value))
+                        END
+                    ),
+                    AVG(
+                        CASE
+                            WHEN variable = 'direccion_racha_max'
+                            THEN COS(RADIANS(uom_value))
+                        END
+                    )
+                )
+            ) + 360,
+            360
+        ) AS direccion_estacion_mes
+
+    FROM b4_resultado
+
+    GROUP BY
+        estacion_id,
+        variable,
+        EXTRACT(MONTH FROM fecha)
+),
+
+
+fallback_global AS (
+    SELECT
+        variable,
+
+        MEDIAN(
+            CASE
+                WHEN variable != 'direccion_racha_max'
+                THEN uom_value
+            END
+        ) AS mediana_global,
+
+        MOD(
+            DEGREES(
+                ATAN2(
+                    AVG(
+                        CASE
+                            WHEN variable = 'direccion_racha_max'
+                            THEN SIN(RADIANS(uom_value))
+                        END
+                    ),
+                    AVG(
+                        CASE
+                            WHEN variable = 'direccion_racha_max'
+                            THEN COS(RADIANS(uom_value))
+                        END
+                    )
+                )
+            ) + 360,
+            360
+        ) AS direccion_global
+
+    FROM b4_resultado
+
+    GROUP BY variable
+),
+
+
+completitud_modelo AS (
+    SELECT
+        b.fecha,
+        b.estacion_id,
+        b.variable,
+        b.uom,
+
+        CASE
+            WHEN b.uom_value IS NOT NULL
+                THEN b.uom_value
+
+            WHEN b.variable = 'direccion_racha_max'
+                THEN COALESCE(
+                    d.direccion_donantes_diaria,
+                    e.direccion_estacion_mes,
+                    g.direccion_global,
+                    0.0
+                )
+
+            ELSE COALESCE(
+                d.media_donantes_diaria,
+                e.mediana_estacion_mes,
+                g.mediana_global,
+                0.0
+            )
+        END AS uom_value,
+
+        CASE
+            WHEN b.uom_value IS NULL THEN TRUE
+            ELSE b.imputado
+        END AS imputado,
+
+        CASE
+            WHEN b.uom_value IS NOT NULL
+                THEN b.metodo_imputacion
+
+            WHEN b.variable = 'direccion_racha_max'
+             AND d.direccion_donantes_diaria IS NOT NULL
+                THEN 'imputacion_circular_donantes_diaria'
+
+            WHEN b.variable = 'direccion_racha_max'
+             AND e.direccion_estacion_mes IS NOT NULL
+                THEN 'imputacion_circular_estacional'
+
+            WHEN b.variable = 'direccion_racha_max'
+             AND g.direccion_global IS NOT NULL
+                THEN 'imputacion_circular_global'
+
+            WHEN d.media_donantes_diaria IS NOT NULL
+                THEN 'media_donantes_diaria'
+
+            WHEN e.mediana_estacion_mes IS NOT NULL
+                THEN 'mediana_estacion_mes'
+
+            WHEN g.mediana_global IS NOT NULL
+                THEN 'mediana_global_variable'
+
+            ELSE 'valor_reserva_cero'
+        END AS metodo_imputacion
+
+    FROM b4_resultado b
+
+    LEFT JOIN fallback_diario d
+        ON b.fecha = d.fecha
+        AND b.variable = d.variable
+
+    LEFT JOIN fallback_estacional e
+        ON b.estacion_id = e.estacion_id
+        AND b.variable = e.variable
+        AND EXTRACT(MONTH FROM b.fecha) = e.mes
+
+    LEFT JOIN fallback_global g
+        ON b.variable = g.variable
+),
+
+
+-- =============================================================================
 -- RESULTADO FINAL
 -- =============================================================================
 
@@ -990,7 +1086,7 @@ capa_analitica_final AS (
             'metodo_imputacion', metodo_imputacion
         ) AS extra
 
-    FROM b4_resultado
+    FROM completitud_modelo
 )
 
 
