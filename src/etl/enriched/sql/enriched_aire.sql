@@ -514,60 +514,36 @@ data_classified AS (
 
     FROM final_values fv
 
-    LEFT JOIN seed_rangos_aire sr
-        ON fv.magnitud = sr.variable
-
-       AND (
-           CASE
-
-               WHEN sr.rango LIKE '[>%' THEN
-
-                   fv.uom_value >
-                   REPLACE(
-                       REPLACE(
-                           sr.rango,
-                           '[>',
-                           ''
-                       ),
-                       ']',
-                       ''
-                   )::NUMERIC
-
-               ELSE
-
-                   fv.uom_value BETWEEN
-
-                       SPLIT_PART(
-                           REPLACE(
-                               REPLACE(
-                                   sr.rango,
-                                   '[',
-                                   ''
-                               ),
-                               ']',
-                               ''
-                           ),
-                           ',',
-                           1
-                       )::NUMERIC
-
-                       AND
-
-                       SPLIT_PART(
-                           REPLACE(
-                               REPLACE(
-                                   sr.rango,
-                                   '[',
-                                   ''
-                               ),
-                               ']',
-                               ''
-                           ),
-                           ',',
-                           2
-                       )::NUMERIC
-           END
-       )
+    -- Los rangos contienen límites como 20.999999 para expresar un
+    -- intervalo entero. Compararlos con promedios DOUBLE produce solapes o
+    -- huecos en las fronteras. Elegimos de forma determinista el mayor umbral
+    -- inferior aplicable; cada valor no negativo recibe una sola categoría.
+    LEFT JOIN LATERAL (
+        SELECT
+            categoria
+        FROM seed_rangos_aire sr
+        WHERE sr.variable = fv.magnitud
+          AND CASE
+                WHEN sr.rango LIKE '[>%'
+                    THEN fv.uom_value > REPLACE(
+                        REPLACE(sr.rango, '[>', ''),
+                        ']',
+                        ''
+                    )::DOUBLE
+                ELSE fv.uom_value >= SPLIT_PART(
+                    REPLACE(
+                        REPLACE(sr.rango, '[', ''),
+                        ']',
+                        ''
+                    ),
+                    ',',
+                    1
+                )::DOUBLE
+            END
+        ORDER BY categoria DESC
+        LIMIT 1
+    ) sr
+        ON TRUE
 )
 
 

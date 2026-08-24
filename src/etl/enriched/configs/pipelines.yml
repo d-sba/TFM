@@ -9,8 +9,12 @@ pipelines:
       tabla_festivos: "seed_festivos"
       metadata_estaciones_aire: "seed_estaciones_aire"
     tests:
-      - name: "No hay calidades nulas"
-        sql_file: "tests/calidades_no_null.sql"
+      - name: "No hay valores ni calidades nulas"
+        sql_file: "tests/aire_no_nulos.sql"
+        severity: "error"
+      - name: "La clave diaria de aire es unica"
+        sql_file: "tests/aire_clave_diaria_unica.sql"
+        severity: "error"
 
 
   - name: "meteo_enriched"
@@ -21,6 +25,12 @@ pipelines:
     tests:
       - name: "No hay valores meteorologicos nulos"
         sql_file: "tests/uoms_no_nulos.sql"
+        severity: "error"
+      - name: "La clave diaria meteorologica es unica"
+        sql_file: "tests/meteo_clave_diaria_unica.sql"
+        severity: "error"
+      - name: "Meteo respeta rangos y coherencia termica"
+        sql_file: "tests/meteo_rangos_y_coherencia.sql"
         severity: "error"
 
   # DIMS
