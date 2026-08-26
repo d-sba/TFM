@@ -522,7 +522,7 @@ data_classified AS (
 
                WHEN sr.rango LIKE '[>%' THEN
 
-                   fv.uom_value >
+                   ROUND(fv.uom_value, 6) >
                    REPLACE(
                        REPLACE(
                            sr.rango,
@@ -531,11 +531,11 @@ data_classified AS (
                        ),
                        ']',
                        ''
-                   )::NUMERIC
+                   )::DOUBLE
 
                ELSE
 
-                   fv.uom_value BETWEEN
+                   ROUND(fv.uom_value, 6) BETWEEN
 
                        SPLIT_PART(
                            REPLACE(
@@ -549,7 +549,7 @@ data_classified AS (
                            ),
                            ',',
                            1
-                       )::NUMERIC
+                       )::DOUBLE
 
                        AND
 
@@ -565,11 +565,10 @@ data_classified AS (
                            ),
                            ',',
                            2
-                       )::NUMERIC
+                       )::DOUBLE
            END
        )
 )
-
 
 -- ============================================================
 -- 16. RESULTADO FINAL
