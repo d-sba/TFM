@@ -1,3 +1,4 @@
+import sys
 import argparse
 from pathlib import Path
 
@@ -377,7 +378,7 @@ def run_pipeline_tests(
 def run_pipeline(
     stage: str = "normalized",
     pipeline_name: str = None
-):
+) -> bool:
     """
     Orquestador de pipelines ETL por capas.
 
@@ -399,7 +400,7 @@ def run_pipeline(
             f"'{stage_dir}' no existe."
         )
 
-        return
+        return False
 
     # --------------------------------------------------------
     # Configuración
@@ -458,7 +459,7 @@ def run_pipeline(
                 f"en [{stage}]"
             )
 
-            return
+            return False
 
     print(
         f"🚀 Ejecutando "
@@ -466,6 +467,9 @@ def run_pipeline(
         f"para la capa: "
         f"[{stage.upper()}]\n"
     )
+
+    # True solo si todas las pipelines de la etapa terminan correctamente.
+    stage_passed = True
 
     # ========================================================
     # EJECUTAR PIPELINES
@@ -614,6 +618,7 @@ def run_pipeline(
                     f"   ⏭️ Pipeline '{name}' omitida.\n"
                 )
 
+                stage_passed = False
                 continue
 
             # =================================================
@@ -647,6 +652,7 @@ def run_pipeline(
                     f"   ⏭️ Pipeline '{name}' omitida.\n"
                 )
 
+                stage_passed = False
                 continue
 
             output_parquet.parent.mkdir(
@@ -681,6 +687,7 @@ def run_pipeline(
                     f"   ⏭️ Pipeline '{name}' omitida.\n"
                 )
 
+                stage_passed = False
                 continue
 
             # =================================================
@@ -808,6 +815,8 @@ def run_pipeline(
 
         except Exception as e:
 
+            stage_passed = False
+
             print(
                 f"   ❌ Error en pipeline "
                 f"'{name}': {e}\n"
@@ -816,6 +825,8 @@ def run_pipeline(
         finally:
 
             con.close()
+
+    return stage_passed
 
 
 # ============================================================
