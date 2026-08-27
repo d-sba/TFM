@@ -186,6 +186,8 @@ def build_database():
                 f"  ✓ {schema}"
             )
 
+        return True
+
     finally:
 
         connection.close()
