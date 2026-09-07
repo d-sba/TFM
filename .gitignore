@@ -1,6 +1,7 @@
 # Entornos virtuales
 venv/
 .venv
+data/*.parquet
 
 # Datos y modelos pesados (No subir a GitHub)
 *.pkl
