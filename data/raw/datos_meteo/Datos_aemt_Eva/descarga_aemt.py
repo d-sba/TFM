@@ -34,7 +34,7 @@ import pandas as pd
 # CONFIGURACIÓN
 # --------------------------------------------------------------------------
 
-VERSION = "v5-2026-07-16"  # Si el log no muestra esta versión, estás con un archivo antiguo.
+VERSION = "v5-2026-07-16"  
 
 # La API key SIEMPRE se lee desde la variable de entorno AEMET_API_KEY.
 API_KEY = os.environ.get("AEMET_API_KEY")
