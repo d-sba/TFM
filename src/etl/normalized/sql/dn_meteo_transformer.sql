@@ -138,8 +138,6 @@ WITH base_data AS (
 -- Una fila por:
 --
 --   estación + fecha + variable
---
--- Aquí TODAVÍA conservamos los NULL.
 -- =============================================================================
 
 unpivoted_measures AS (
